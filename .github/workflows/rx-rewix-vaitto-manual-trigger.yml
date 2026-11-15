@@ -1,0 +1,68 @@
+# Code and output stay private (see README). Enabled by the repo variable RX_ENABLED=true.
+name: '[RX] R → Vaitto (manual trigger, live app)'
+
+on:
+  workflow_dispatch:
+    inputs:
+      full:
+        description: "Force a full resync (ignore the incremental cursor)"
+        type: boolean
+        default: false
+
+concurrency:
+  group: rx-rewix-vaitto-manual-trigger
+  cancel-in-progress: false
+
+jobs:
+  trigger:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Runner scripts
+        uses: actions/checkout@v4
+        with:
+          path: runner
+      - name: Install quiet shell
+        shell: bash
+        working-directory: .
+        run: mkdir -p src && sudo install -m 755 runner/.github/scripts/quiet-shell.sh /usr/local/bin/quiet-shell
+      - name: Call the live R sync route
+        env:
+          HOOK_SECRET: ${{ secrets.RX_IMPORT_HOOK_SECRET }}
+          FULL_FLAG: ${{ inputs.full }}
+        run: |
+          set -e
+          URL="https://vaitto.com/api/public/hooks/rewix-vaitto-sync"
+          BODY="{}"
+          if [ "$FULL_FLAG" = "true" ]; then BODY='{"full": true}'; fi
+
+          echo "POST $URL  (full=$FULL_FLAG)"
+
+          HTTP_CODE=$(curl -sS -o response.json -w "%{http_code}" \
+            -X POST "$URL" \
+            -H "x-hook-secret: $HOOK_SECRET" \
+            -H "Content-Type: application/json" \
+            -d "$BODY")
+
+          echo "─── Response ($HTTP_CODE) ───"
+          cat response.json | jq . 2>/dev/null || cat response.json
+          echo "──────────────────────────────"
+
+          if [ "$HTTP_CODE" -lt 200 ] || [ "$HTTP_CODE" -ge 300 ]; then
+            echo "❌ Sync route returned HTTP $HTTP_CODE"
+            exit 1
+          fi
+
+          echo "✅ Sync triggered successfully"
+      - name: Save log and reports privately
+        if: always()
+        shell: bash
+        run: bash "$GITHUB_WORKSPACE/runner/.github/scripts/save-logs.sh" stshophu/rewix-shopify-sync "$LOG_JOB"
+    if: vars.RX_ENABLED == 'true'
+    env:
+      PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+      LOG_JOB: rx-trigger
+    defaults:
+      run:
+        shell: quiet-shell {0}
+        working-directory: src

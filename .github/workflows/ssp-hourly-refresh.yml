@@ -1,0 +1,59 @@
+# Code and output stay private (see README). Enabled by the repo variable SSP_ENABLED=true.
+name: '[SSP] Supplier Tier 2 — Hourly Refresh'
+
+on:
+  schedule:
+    - cron: "30 * * * *"       # every hour at :30
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: "Apply to Shopify (otherwise dry run)"
+        type: boolean
+        default: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Runner scripts
+        uses: actions/checkout@v4
+        with:
+          path: runner
+      - name: Install quiet shell
+        shell: bash
+        working-directory: .
+        run: sudo install -m 755 runner/.github/scripts/quiet-shell.sh /usr/local/bin/quiet-shell
+      - name: Private code (stshophu/supplier-sync-portfolio)
+        uses: actions/checkout@v4
+        with:
+          repository: stshophu/supplier-sync-portfolio
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          path: src
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt
+      - name: Run Tier 2 refresh
+        env:
+          SHOPIFY_DOMAIN: ${{ secrets.SSP_SHOPIFY_DOMAIN }}
+          SHOPIFY_TOKEN: ${{ secrets.SSP_SHOPIFY_TOKEN }}
+          SUPPLIER_LOCATION_ID: ${{ secrets.SSP_SUPPLIER_LOCATION_ID }}
+          SUPPLIER_PRICE_FEED: ${{ secrets.SSP_SUPPLIER_PRICE_FEED }}
+        run: |
+          if [ "${{ github.event_name == 'schedule' || github.event.inputs.commit == 'true' }}" = "true" ]; then
+            python3 hourly_refresh.py --commit
+          else
+            python3 hourly_refresh.py
+          fi
+      - name: Save log and reports privately
+        if: always()
+        shell: bash
+        run: bash "$GITHUB_WORKSPACE/runner/.github/scripts/save-logs.sh" stshophu/supplier-sync-portfolio "$LOG_JOB"
+    if: vars.SSP_ENABLED == 'true'
+    env:
+      PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+      LOG_JOB: ssp-refresh
+    defaults:
+      run:
+        shell: quiet-shell {0}
+        working-directory: src

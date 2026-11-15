@@ -1,0 +1,42 @@
+# Code and output stay private (see README). Enabled by the repo variable RX_ENABLED=true.
+name: '[RX] Preview R pricing (manual, read-only)'
+on:
+  workflow_dispatch:
+jobs:
+  preview:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Runner scripts
+        uses: actions/checkout@v4
+        with:
+          path: runner
+      - name: Install quiet shell
+        shell: bash
+        working-directory: .
+        run: sudo install -m 755 runner/.github/scripts/quiet-shell.sh /usr/local/bin/quiet-shell
+      - name: Private code (stshophu/rewix-shopify-sync)
+        uses: actions/checkout@v4
+        with:
+          repository: stshophu/rewix-shopify-sync
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          path: src
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Compare current vs new prices
+        env:
+          SHOPIFY_STORE: ${{ secrets.RX_SHOPIFY_STORE }}
+          SHOPIFY_TOKEN: ${{ secrets.RX_SHOPIFY_TOKEN }}
+        run: node preview_pricing.cjs
+      - name: Save log and reports privately
+        if: always()
+        shell: bash
+        run: bash "$GITHUB_WORKSPACE/runner/.github/scripts/save-logs.sh" stshophu/rewix-shopify-sync "$LOG_JOB" pricing_preview.csv pricing_preview_brands.csv
+    if: vars.RX_ENABLED == 'true'
+    env:
+      PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+      LOG_JOB: rx-preview
+    defaults:
+      run:
+        shell: quiet-shell {0}
+        working-directory: src

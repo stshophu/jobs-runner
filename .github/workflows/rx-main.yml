@@ -1,0 +1,80 @@
+# Code and output stay private (see README). Enabled by the repo variable RX_ENABLED=true.
+name: '[RX] R to Shopify Product Sync'
+
+on:
+  schedule:
+    - cron: '0 * * * *'
+  workflow_dispatch:
+    inputs:
+      cleanup_dry_run:
+        description: 'Dry run: log cleanup changes without making them'
+        type: boolean
+        default: true
+
+concurrency:
+  group: rx-rewix-shopify-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Runner scripts
+        uses: actions/checkout@v4
+        with:
+          path: runner
+      - name: Install quiet shell
+        shell: bash
+        working-directory: .
+        run: sudo install -m 755 runner/.github/scripts/quiet-shell.sh /usr/local/bin/quiet-shell
+      - name: Private code (stshophu/rewix-shopify-sync)
+        uses: actions/checkout@v4
+        with:
+          repository: stshophu/rewix-shopify-sync
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          path: src
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Restore sync timestamp
+        uses: actions/cache@v4
+        with:
+          path: src/.last_sync_timestamp
+          key: sync-timestamp-${{ github.run_id }}
+          restore-keys: |
+            sync-timestamp-
+
+      - name: Restore last full-sync count
+        uses: actions/cache@v4
+        with:
+          path: src/.last_full_sync_count
+          key: full-sync-count-${{ github.run_id }}
+          restore-keys: |
+            full-sync-count-
+
+      - name: Run product sync
+        env:
+          REWIX_BASE_URL: ${{ secrets.RX_REWIX_BASE_URL }}
+          REWIX_API_KEY: ${{ secrets.RX_REWIX_API_KEY }}
+          REWIX_PASSWORD: ${{ secrets.RX_REWIX_PASSWORD }}
+          REWIX_IMAGE_BASE: ${{ secrets.RX_REWIX_IMAGE_BASE }}
+          SHOPIFY_STORE: ${{ secrets.RX_SHOPIFY_STORE }}
+          SHOPIFY_TOKEN: ${{ secrets.RX_SHOPIFY_TOKEN }}
+        run: node sync.js --full ${{ inputs.cleanup_dry_run && '--cleanup-dry-run' || '' }}
+      - name: Save log and reports privately
+        if: always()
+        shell: bash
+        run: bash "$GITHUB_WORKSPACE/runner/.github/scripts/save-logs.sh" stshophu/rewix-shopify-sync "$LOG_JOB"
+    if: vars.RX_ENABLED == 'true'
+    env:
+      PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+      LOG_JOB: rx-sync
+    defaults:
+      run:
+        shell: quiet-shell {0}
+        working-directory: src

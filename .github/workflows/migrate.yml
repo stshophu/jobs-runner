@@ -1,0 +1,51 @@
+name: One-off — migrate repos into this runner
+
+# Needs only the PRIVATE_REPO_TOKEN secret here (see README for its
+# permissions). For each repo: puts the token into that repo as MIGRATE_TOKEN,
+# starts its migrate-out.yml (copies its secrets + variables here, removes its
+# schedules, switches on the copies here), waits, then deletes MIGRATE_TOKEN.
+# siebentaschen-feed only gets its secrets copied; its schedules move with
+# "Finish feed move" after the rename.
+on:
+  workflow_dispatch:
+    inputs:
+      repos:
+        description: "Repos to migrate (space-separated)"
+        required: true
+        default: "product-feed prod_synch rewix-shopify-sync supplier-sync-portfolio siebentaschen-feed"
+
+permissions:
+  contents: read
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+      REPOS: ${{ inputs.repos }}
+    steps:
+      - name: Migrate
+        run: |
+          set -uo pipefail
+          declare -A P=([product-feed]=PF [prod_synch]=PS [rewix-shopify-sync]=RX [supplier-sync-portfolio]=SSP [siebentaschen-feed]=SF)
+          fail=0
+          for r in $REPOS; do
+            p="${P[$r]:-}"; [ -z "$p" ] && { echo "$r: unknown repo, skipped"; fail=1; continue; }
+            full="stshophu/$r"
+            if [ "$r" = siebentaschen-feed ]; then sched=false; en=false; else sched=true; en=true; fi
+            printf '%s' "$GH_TOKEN" | gh secret set MIGRATE_TOKEN --repo "$full" || { echo "$r: cannot set MIGRATE_TOKEN (token permissions?)"; fail=1; continue; }
+            before=$(gh run list --repo "$full" --workflow migrate-out.yml -L1 --json databaseId -q '.[0].databaseId // 0' 2>/dev/null || echo 0)
+            gh workflow run migrate-out.yml --repo "$full" -f prefix="$p" -f remove_schedules="$sched" -f enable="$en"
+            id="$before"
+            for i in $(seq 36); do
+              sleep 5
+              id=$(gh run list --repo "$full" --workflow migrate-out.yml -L1 --json databaseId -q '.[0].databaseId // 0')
+              [ "$id" != "$before" ] && break
+            done
+            if [ "$id" = "$before" ]; then echo "$r: run did not start"; fail=1
+            elif gh run watch "$id" --repo "$full" --exit-status --interval 10 >/dev/null 2>&1; then echo "$r: migrated ($p)"
+            else echo "$r: FAILED — see https://github.com/$full/actions/runs/$id"; fail=1; fi
+            gh secret delete MIGRATE_TOKEN --repo "$full" >/dev/null 2>&1 || true
+          done
+          exit $fail

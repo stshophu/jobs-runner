@@ -1,0 +1,50 @@
+# Code and output stay private (see README). Enabled by the repo variable PS_ENABLED=true.
+name: '[PS] Fix collection texts (manual, one-off)'
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: "Actually update collections? (false = dry run)"
+        type: boolean
+        default: false
+jobs:
+  fix:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Runner scripts
+        uses: actions/checkout@v4
+        with:
+          path: runner
+      - name: Install quiet shell
+        shell: bash
+        working-directory: .
+        run: sudo install -m 755 runner/.github/scripts/quiet-shell.sh /usr/local/bin/quiet-shell
+      - name: Private code (stshophu/prod_synch)
+        uses: actions/checkout@v4
+        with:
+          repository: stshophu/prod_synch
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          path: src
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+          cache-dependency-path: src/**/requirements*.txt
+      - run: pip install -r requirements.txt
+      - name: Fix collection texts
+        env:
+          SHOPIFY_TOKEN: ${{ secrets.PS_SHOPIFY_TOKEN }}
+          SHOPIFY_STORE: siebentaschen.myshopify.com
+        run: python fix_collection_texts.py ${{ inputs.apply && '--apply' || '' }}
+      - name: Save log and reports privately
+        if: always()
+        shell: bash
+        run: bash "$GITHUB_WORKSPACE/runner/.github/scripts/save-logs.sh" stshophu/prod_synch "$LOG_JOB"
+    if: vars.PS_ENABLED == 'true'
+    env:
+      PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+      LOG_JOB: ps-fix
+    defaults:
+      run:
+        shell: quiet-shell {0}
+        working-directory: src

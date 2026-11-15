@@ -1,0 +1,54 @@
+name: One-off — finish feed move
+
+# Run after: (1) siebentaschen-feed was renamed to siebentaschen-feed-src and
+# made private, and (2) a new PUBLIC repo stshophu/siebentaschen-feed was
+# created (tick "Add a README"). Removes the schedules in the private repo,
+# switches on the feed jobs here and runs them once, so the public feed URLs
+# (raw.githubusercontent.com/stshophu/siebentaschen-feed/main/...) are filled
+# again right away.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  finish:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+    steps:
+      - name: Check the two repos
+        run: |
+          set -euo pipefail
+          src=$(gh api repos/stshophu/siebentaschen-feed-src --jq '.private') || { echo "siebentaschen-feed-src not found — rename siebentaschen-feed first"; exit 1; }
+          host=$(gh api repos/stshophu/siebentaschen-feed --jq '.private') || { echo "new public repo siebentaschen-feed not found — create it first"; exit 1; }
+          [ "$host" = "false" ] || { echo "stshophu/siebentaschen-feed must be PUBLIC (it serves the feed URLs)"; exit 1; }
+          [ "$src" = "true" ] || echo "note: siebentaschen-feed-src is still public — switch it to private"
+          if gh api repos/stshophu/siebentaschen-feed/contents/google_feed.py >/dev/null 2>&1; then
+            echo "stshophu/siebentaschen-feed still contains the code — it was not renamed yet"; exit 1
+          fi
+          echo "repos ok"
+      - uses: actions/checkout@v4
+        with: { path: runner }
+      - uses: actions/checkout@v4
+        with:
+          repository: stshophu/siebentaschen-feed-src
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          path: src
+      - name: Remove schedules in the private repo
+        working-directory: src
+        run: |
+          set -euo pipefail
+          python3 ../runner/.github/scripts/remove-schedules.py .
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .github/workflows
+          git diff --cached --quiet || { git commit -qm "Move schedules to the public runner stshophu/viterbo-runner"; git push -q; }
+      - name: Switch on the feed jobs and run them once
+        run: |
+          set -euo pipefail
+          gh variable set SF_ENABLED --repo stshophu/viterbo-runner --body true
+          for wf in sf-google-feed.yml sf-glami-feed.yml sf-feed-export.yml; do
+            gh workflow run "$wf" --repo stshophu/viterbo-runner && echo "started $wf"
+          done

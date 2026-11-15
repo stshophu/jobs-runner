@@ -1,0 +1,53 @@
+# Code and output stay private (see README). Enabled by the repo variable RX_ENABLED=true.
+name: '[RX] Delete Duplicate Products (Manual)'
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: "Type 'apply' to actually delete. Leave blank for a dry run."
+        required: false
+        default: ''
+jobs:
+  delete-duplicates:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Runner scripts
+        uses: actions/checkout@v4
+        with:
+          path: runner
+      - name: Install quiet shell
+        shell: bash
+        working-directory: .
+        run: sudo install -m 755 runner/.github/scripts/quiet-shell.sh /usr/local/bin/quiet-shell
+      - name: Private code (stshophu/rewix-shopify-sync)
+        uses: actions/checkout@v4
+        with:
+          repository: stshophu/rewix-shopify-sync
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          path: src
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm install
+      - name: Run delete duplicates script
+        env:
+          SHOPIFY_STORE: ${{ secrets.RX_SHOPIFY_STORE }}
+          SHOPIFY_TOKEN: ${{ secrets.RX_SHOPIFY_TOKEN }}
+        run: |
+          if [ "${{ github.event.inputs.apply }}" = "apply" ]; then
+            node delete_duplicates.cjs --apply
+          else
+            node delete_duplicates.cjs
+          fi
+      - name: Save log and reports privately
+        if: always()
+        shell: bash
+        run: bash "$GITHUB_WORKSPACE/runner/.github/scripts/save-logs.sh" stshophu/rewix-shopify-sync "$LOG_JOB"
+    if: vars.RX_ENABLED == 'true'
+    env:
+      PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+      LOG_JOB: rx-delete-duplicates
+    defaults:
+      run:
+        shell: quiet-shell {0}
+        working-directory: src

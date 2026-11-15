@@ -1,0 +1,61 @@
+# Code and output stay private (see README). Enabled by the repo variable SSP_ENABLED=true.
+name: '[SSP] Supplier Tier 1 — Full Catalog Import'
+
+on:
+  schedule:
+    - cron: "0 3 * * *"        # daily at 03:00 UTC
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: "Apply to Shopify (otherwise dry run)"
+        type: boolean
+        default: false
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Runner scripts
+        uses: actions/checkout@v4
+        with:
+          path: runner
+      - name: Install quiet shell
+        shell: bash
+        working-directory: .
+        run: sudo install -m 755 runner/.github/scripts/quiet-shell.sh /usr/local/bin/quiet-shell
+      - name: Private code (stshophu/supplier-sync-portfolio)
+        uses: actions/checkout@v4
+        with:
+          repository: stshophu/supplier-sync-portfolio
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          path: src
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -r requirements.txt
+      - name: Run Tier 1 import
+        env:
+          SHOPIFY_DOMAIN: ${{ secrets.SSP_SHOPIFY_DOMAIN }}
+          SHOPIFY_TOKEN: ${{ secrets.SSP_SHOPIFY_TOKEN }}
+          SUPPLIER_LOCATION_ID: ${{ secrets.SSP_SUPPLIER_LOCATION_ID }}
+          SUPPLIER_PRICE_FEED: ${{ secrets.SSP_SUPPLIER_PRICE_FEED }}
+          SUPPLIER_CATALOG_FEED: ${{ secrets.SSP_SUPPLIER_CATALOG_FEED }}
+          SUPPLIER_FALLBACK_FEED: ${{ secrets.SSP_SUPPLIER_FALLBACK_FEED }}
+        run: |
+          if [ "${{ github.event_name == 'schedule' || github.event.inputs.commit == 'true' }}" = "true" ]; then
+            python3 catalog_import.py --commit
+          else
+            python3 catalog_import.py
+          fi
+      - name: Save log and reports privately
+        if: always()
+        shell: bash
+        run: bash "$GITHUB_WORKSPACE/runner/.github/scripts/save-logs.sh" stshophu/supplier-sync-portfolio "$LOG_JOB"
+    if: vars.SSP_ENABLED == 'true'
+    env:
+      PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+      LOG_JOB: ssp-import
+    defaults:
+      run:
+        shell: quiet-shell {0}
+        working-directory: src

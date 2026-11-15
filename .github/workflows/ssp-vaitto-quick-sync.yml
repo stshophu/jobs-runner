@@ -1,0 +1,56 @@
+# Code and output stay private (see README). Enabled by the repo variable SSP_ENABLED=true.
+name: '[SSP] Supplier → Vaitto QUICK (EU-WAR-3) — price/stock only'
+
+on:
+  schedule:
+    - cron: '10 * * * *'   # every 60 minutes, offset from the full sync (:40)
+  workflow_dispatch:
+
+jobs:
+  sync-quick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Runner scripts
+        uses: actions/checkout@v4
+        with:
+          path: runner
+      - name: Install quiet shell
+        shell: bash
+        working-directory: .
+        run: sudo install -m 755 runner/.github/scripts/quiet-shell.sh /usr/local/bin/quiet-shell
+      - name: Private code (stshophu/supplier-sync-portfolio)
+        uses: actions/checkout@v4
+        with:
+          repository: stshophu/supplier-sync-portfolio
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          path: src
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install -r requirements.txt
+      - name: Run quick sync
+        env:
+          SUPPLIER_PRICE_FEED: ${{ secrets.SSP_SUPPLIER_PRICE_FEED }}
+          SUPPLIER_FALLBACK_FEED: ${{ secrets.SSP_SUPPLIER_FALLBACK_FEED }}
+          PRICE_FEED: ${{ secrets.SSP_SUPPLIER_PRICE_FEED }}
+          SUPPLIER_REPO_PATH: '.'
+          SHOPIFY_DOMAIN: ${{ secrets.SSP_SHOPIFY_DOMAIN }}
+          SHOPIFY_TOKEN: ${{ secrets.SSP_SHOPIFY_TOKEN }}
+          IMPORT_HOOK_SECRET: ${{ secrets.SSP_IMPORT_HOOK_SECRET }}
+          VAITTO_HOOK_URL: https://vaitto.com/api/public/hooks/vaitto-product-import
+          VAITTO_SUPABASE_URL: ${{ secrets.SSP_VAITTO_SUPABASE_URL }}
+          VAITTO_SUPABASE_SERVICE_KEY: ${{ secrets.SSP_VAITTO_SUPABASE_SERVICE_KEY }}
+        run: python sync_vaitto_quick.py
+      - name: Save log and reports privately
+        if: always()
+        shell: bash
+        run: bash "$GITHUB_WORKSPACE/runner/.github/scripts/save-logs.sh" stshophu/supplier-sync-portfolio "$LOG_JOB"
+    if: vars.SSP_ENABLED == 'true'
+    env:
+      PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+      LOG_JOB: ssp-sync-quick
+    defaults:
+      run:
+        shell: quiet-shell {0}
+        working-directory: src

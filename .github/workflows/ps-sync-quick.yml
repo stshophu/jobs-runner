@@ -1,0 +1,51 @@
+# Code and output stay private (see README). Enabled by the repo variable PS_ENABLED=true.
+name: '[PS] Channable → Vaitto QUICK (T EU-WAR-2) — price/stock only'
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+jobs:
+  sync-quick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Runner scripts
+        uses: actions/checkout@v4
+        with:
+          path: runner
+      - name: Install quiet shell
+        shell: bash
+        working-directory: .
+        run: sudo install -m 755 runner/.github/scripts/quiet-shell.sh /usr/local/bin/quiet-shell
+      - name: Private code (stshophu/prod_synch)
+        uses: actions/checkout@v4
+        with:
+          repository: stshophu/prod_synch
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          path: src
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install requests pandas
+      - name: Run quick sync
+        env:
+          CHANNABLE_URL: ${{ secrets.PS_CHANNABLE_URL }}
+          IMPORT_HOOK_SECRET: ${{ secrets.PS_IMPORT_HOOK_SECRET }}
+          VAITTO_HOOK_URL: https://vaitto.com/api/public/hooks/vaitto-product-import
+          VAITTO_SUPABASE_URL: ${{ secrets.PS_VAITTO_SUPABASE_URL }}
+          VAITTO_SUPABASE_SERVICE_KEY: ${{ secrets.PS_VAITTO_SUPABASE_SERVICE_KEY }}
+        run: python channable_sync_vaitto_quick.py
+      - name: Save log and reports privately
+        if: always()
+        shell: bash
+        run: bash "$GITHUB_WORKSPACE/runner/.github/scripts/save-logs.sh" stshophu/prod_synch "$LOG_JOB"
+    if: vars.PS_ENABLED == 'true'
+    env:
+      PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+      LOG_JOB: ps-sync-quick
+    defaults:
+      run:
+        shell: quiet-shell {0}
+        working-directory: src

@@ -1,0 +1,113 @@
+# Code and output stay private (see README). Enabled by the repo variable SF_ENABLED=true.
+name: '[SF] Glami feed'
+
+on:
+  schedule:
+    - cron: "20 * * * *"
+  workflow_dispatch:
+    inputs:
+      audit:
+        description: "Audit only — report gaps, don't publish"
+        type: boolean
+        default: false
+
+concurrency:
+  group: sf-glami-feed
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+
+    steps:
+      - name: Runner scripts
+        uses: actions/checkout@v4
+        with:
+          path: runner
+      - name: Install quiet shell
+        shell: bash
+        working-directory: .
+        run: sudo install -m 755 runner/.github/scripts/quiet-shell.sh /usr/local/bin/quiet-shell
+      - name: Private code (stshophu/siebentaschen-feed-src)
+        uses: actions/checkout@v4
+        with:
+          repository: stshophu/siebentaschen-feed-src
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          path: src
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Generate feed
+        env:
+          SHOPIFY_STORE: ${{ secrets.SF_SHOPIFY_STORE_DOMAIN || secrets.SF_SHOPIFY_STORE }}
+          SHOPIFY_TOKEN: ${{ secrets.SF_SHOPIFY_ADMIN_TOKEN || secrets.SF_SHOPIFY_TOKEN }}
+          GLAMI_CPC: ${{ vars.SF_GLAMI_CPC }}
+        run: |
+          if [ "${{ inputs.audit }}" = "true" ]; then
+            python glami_feed.py --audit
+          else
+            python glami_feed.py --out glami_feed.xml
+          fi
+
+      - name: Sanity-check the feed before publishing
+        if: ${{ inputs.audit != true }}
+        run: |
+          python - <<'PY'
+          import sys, os
+          from xml.etree import ElementTree as ET
+
+          path = "glami_feed.xml"
+          size = os.path.getsize(path)
+          root = ET.parse(path).getroot()          # fails loudly on malformed XML
+          items = root.findall("SHOPITEM")
+          print(f"{len(items)} items, {size/1024/1024:.1f} MB")
+
+          if len(items) < 500:
+              sys.exit(f"only {len(items)} items — refusing to publish")
+
+          missing = [i for i in items if i.find("CATEGORYTEXT") is None]
+          if missing:
+              sys.exit(f"{len(missing)} items without CATEGORYTEXT")
+
+          bad = [i for i in items
+                 if not i.findtext("CATEGORYTEXT", "").startswith("Glami.pl | ")]
+          if bad:
+              sys.exit(f"{len(bad)} items with a malformed category path")
+          PY
+
+      - name: Commit if changed
+        if: ${{ inputs.audit != true }}
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add glami_feed.xml
+          if git diff --cached --quiet; then
+            echo "No change this run."
+          else
+            git commit -m "Glami feed: $(date -u '+%Y-%m-%d %H:%M UTC')"
+            git push
+          fi
+      - name: Publish feed files to the public feed host (stshophu/siebentaschen-feed)
+        if: ${{ inputs.audit != true }}
+        shell: bash
+        run: bash "$GITHUB_WORKSPACE/runner/.github/scripts/publish-feeds.sh" glami_feed.xml
+      - name: Save log and reports privately
+        if: always()
+        shell: bash
+        run: bash "$GITHUB_WORKSPACE/runner/.github/scripts/save-logs.sh" stshophu/siebentaschen-feed-src "$LOG_JOB"
+    if: vars.SF_ENABLED == 'true'
+    env:
+      PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+      LOG_JOB: sf-build
+    defaults:
+      run:
+        shell: quiet-shell {0}
+        working-directory: src

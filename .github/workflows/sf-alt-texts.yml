@@ -1,0 +1,63 @@
+# Code and output stay private (see README). Enabled by the repo variable SF_ENABLED=true.
+name: '[SF] Image alt texts (Google Images)'
+
+on:
+  workflow_dispatch:
+    inputs:
+      apply:
+        description: "Write alt texts to Shopify (off = dry run)"
+        type: boolean
+        default: false
+      overwrite:
+        description: "Also replace alt texts that are already set"
+        type: boolean
+        default: false
+
+concurrency:
+  group: sf-alt-texts
+  cancel-in-progress: false
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Runner scripts
+        uses: actions/checkout@v4
+        with:
+          path: runner
+      - name: Install quiet shell
+        shell: bash
+        working-directory: .
+        run: sudo install -m 755 runner/.github/scripts/quiet-shell.sh /usr/local/bin/quiet-shell
+      - name: Private code (stshophu/siebentaschen-feed-src)
+        uses: actions/checkout@v4
+        with:
+          repository: stshophu/siebentaschen-feed-src
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          path: src
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install requests
+      - name: Fill alt texts
+        env:
+          SHOPIFY_STORE: ${{ secrets.SF_SHOPIFY_STORE_DOMAIN || secrets.SF_SHOPIFY_STORE }}
+          SHOPIFY_TOKEN: ${{ secrets.SF_SHOPIFY_WRITE_TOKEN || secrets.SF_SHOPIFY_ADMIN_TOKEN || secrets.SF_SHOPIFY_TOKEN }}
+        run: |
+          ARGS=""
+          [ "${{ inputs.apply }}" = "true" ] && ARGS="$ARGS --apply"
+          [ "${{ inputs.overwrite }}" = "true" ] && ARGS="$ARGS --overwrite"
+          python alt_text_backfill.py $ARGS
+      - name: Save log and reports privately
+        if: always()
+        shell: bash
+        run: bash "$GITHUB_WORKSPACE/runner/.github/scripts/save-logs.sh" stshophu/siebentaschen-feed-src "$LOG_JOB"
+    if: vars.SF_ENABLED == 'true'
+    env:
+      PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+      LOG_JOB: sf-run
+    defaults:
+      run:
+        shell: quiet-shell {0}
+        working-directory: src

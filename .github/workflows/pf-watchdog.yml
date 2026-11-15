@@ -1,0 +1,108 @@
+# Code and output stay private (see README). Enabled by the repo variable PF_ENABLED=true.
+name: '[PF] WSNL Sync Watchdog'
+
+on:
+  schedule:
+    - cron: "23 */2 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  actions: write
+  issues: write
+  contents: read
+
+env:
+  MAX_AGE_HOURS: "6"
+  ISSUE_TITLE: "WSNL sync is not running"
+
+jobs:
+  watchdog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Runner scripts
+        uses: actions/checkout@v4
+        with:
+          path: runner
+      - name: Install quiet shell
+        shell: bash
+        working-directory: .
+        run: mkdir -p src && sudo install -m 755 runner/.github/scripts/quiet-shell.sh /usr/local/bin/quiet-shell
+      - name: Keep workflows enabled
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          for wf in sync.yml sync_stock_light.yml watchdog.yml; do
+            gh api -X PUT "repos/${{ github.repository }}/actions/workflows/$wf/enable" \
+              && echo "enabled $wf" || echo "::warning::could not enable $wf"
+          done
+
+      - name: Check sync health
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          now=$(date -u +%s)
+          problems=""
+          for wf in sync.yml sync_stock_light.yml; do
+            state=$(gh api "repos/${{ github.repository }}/actions/workflows/$wf" --jq .state)
+            last=$(gh api "repos/${{ github.repository }}/actions/workflows/$wf/runs?status=completed&per_page=1" \
+              --jq '.workflow_runs[0] | "\(.conclusion) \(.updated_at) \(.html_url)"')
+            ok=$(gh api "repos/${{ github.repository }}/actions/workflows/$wf/runs?status=success&per_page=1" \
+              --jq '.workflow_runs[0].updated_at // empty')
+            read -r concl at url <<< "$last"
+            age_h=999
+            [ -n "$ok" ] && age_h=$(( (now - $(date -u -d "$ok" +%s)) / 3600 ))
+            echo "$wf: state=$state last=$concl ($at) last_success=${ok:-never} (${age_h}h ago)"
+            if [ "$state" != "active" ]; then
+              problems+="- **$wf** is $state on GitHub."$'\n'
+            fi
+            if [ "$concl" = "failure" ]; then
+              problems+="- **$wf**: latest run failed ($at UTC): $url"$'\n'
+            fi
+            if [ "$age_h" -ge "$MAX_AGE_HOURS" ]; then
+              problems+="- **$wf**: no successful run for ${age_h} hours (last success: ${ok:-never})."$'\n'
+            fi
+          done
+          {
+            echo "problems<<EOF"
+            printf "%s" "$problems"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Open or update alert issue
+        if: steps.check.outputs.problems != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PROBLEMS: ${{ steps.check.outputs.problems }}
+        run: |
+          body="$(printf 'WSNL / Winkelstraat is not getting stock and price updates.\n\n%s\nChecked %s UTC.\nRuns: https://github.com/%s/actions' "$PROBLEMS" "$(date -u '+%Y-%m-%d %H:%M')" "${{ github.repository }}")"
+          num=$(gh issue list -R "${{ github.repository }}" --state open --search "in:title \"$ISSUE_TITLE\"" --json number --jq '.[0].number // empty')
+          if [ -n "$num" ]; then
+            gh issue comment "$num" -R "${{ github.repository }}" --body "$body"
+          else
+            gh issue create -R "${{ github.repository }}" --title "$ISSUE_TITLE" --body "$body"
+          fi
+          echo "::warning::WSNL sync problem reported"
+
+      - name: Close alert issue when healthy
+        if: steps.check.outputs.problems == ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          num=$(gh issue list -R "${{ github.repository }}" --state open --search "in:title \"$ISSUE_TITLE\"" --json number --jq '.[0].number // empty')
+          if [ -n "$num" ]; then
+            gh issue close "$num" -R "${{ github.repository }}" --comment "Both WSNL syncs are running normally again."
+          fi
+      - name: Save log and reports privately
+        if: always()
+        shell: bash
+        run: bash "$GITHUB_WORKSPACE/runner/.github/scripts/save-logs.sh" stshophu/product-feed "$LOG_JOB"
+    if: vars.PF_ENABLED == 'true'
+    env:
+      PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+      LOG_JOB: pf-watchdog
+    defaults:
+      run:
+        shell: quiet-shell {0}
+        working-directory: src

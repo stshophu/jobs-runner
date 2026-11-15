@@ -1,4 +1,4 @@
-name: VAITTO Loxuno feed
+name: VAITTO L feed
 
 # Runs the private stshophu/vaitto-loxuno-feed code and commits the feed CSV
 # back to that private repo (data/vaitto_feed.csv), exactly as before.

@@ -1,0 +1,53 @@
+# Code and output stay private (see README). Enabled by the repo variable RX_ENABLED=true.
+name: '[RX] Inspect Model Code (Manual, Read-Only)'
+
+on:
+  workflow_dispatch:
+    inputs:
+      search:
+        description: "Code or title substring to search for (e.g. m4c06t)"
+        required: true
+        default: 'm4c06t'
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Runner scripts
+        uses: actions/checkout@v4
+        with:
+          path: runner
+      - name: Install quiet shell
+        shell: bash
+        working-directory: .
+        run: sudo install -m 755 runner/.github/scripts/quiet-shell.sh /usr/local/bin/quiet-shell
+      - name: Private code (stshophu/rewix-shopify-sync)
+        uses: actions/checkout@v4
+        with:
+          repository: stshophu/rewix-shopify-sync
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          path: src
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - run: npm install
+
+      - name: Run diagnostic
+        env:
+          REWIX_BASE_URL: ${{ secrets.RX_REWIX_BASE_URL }}
+          REWIX_API_KEY: ${{ secrets.RX_REWIX_API_KEY }}
+          REWIX_PASSWORD: ${{ secrets.RX_REWIX_PASSWORD }}
+        run: node inspect_model_code.cjs "${{ github.event.inputs.search }}"
+      - name: Save log and reports privately
+        if: always()
+        shell: bash
+        run: bash "$GITHUB_WORKSPACE/runner/.github/scripts/save-logs.sh" stshophu/rewix-shopify-sync "$LOG_JOB"
+    if: vars.RX_ENABLED == 'true'
+    env:
+      PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+      LOG_JOB: rx-inspect
+    defaults:
+      run:
+        shell: quiet-shell {0}
+        working-directory: src
