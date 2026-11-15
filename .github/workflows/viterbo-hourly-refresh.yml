@@ -31,7 +31,6 @@ jobs:
     timeout-minutes: 30
     env:
       PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
-      VITERBO_QUIET: "1"
       LOG_JOB: viterbo-hourly-refresh
       S: ${{ github.workspace }}/runner/.github/scripts
     steps:
