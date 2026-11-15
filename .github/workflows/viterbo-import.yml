@@ -28,6 +28,7 @@ jobs:
     timeout-minutes: 120
     env:
       PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+      VITERBO_QUIET: "1"
       LOG_JOB: viterbo-import
       S: ${{ github.workspace }}/runner/.github/scripts
     steps:

@@ -7,7 +7,7 @@ set -uo pipefail
 repo="$1"; job="$2"; shift 2
 dir="$RUNNER_TEMP/logs-$job"
 rm -rf "$dir"; mkdir -p "$dir"
-[ -f "$RUNNER_TEMP/out/run.log" ] && cp "$RUNNER_TEMP/out/run.log" "$dir/"
+for f in run.log summary.md; do [ -f "$RUNNER_TEMP/out/$f" ] && cp "$RUNNER_TEMP/out/$f" "$dir/"; done
 for f in "$@"; do [ -f "$f" ] && cp "$f" "$dir/"; done
 {
   echo "run: ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"

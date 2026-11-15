@@ -6,6 +6,8 @@
 # code, line count and duration.
 set -uo pipefail
 mkdir -p "$RUNNER_TEMP/out"
+# Job summaries are public too: redirect them into the private log folder.
+export GITHUB_STEP_SUMMARY="$RUNNER_TEMP/out/summary.md"
 start=$(date +%s)
 "$@" > "$RUNNER_TEMP/out/run.log" 2>&1
 rc=$?
