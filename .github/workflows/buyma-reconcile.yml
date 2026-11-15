@@ -1,0 +1,88 @@
+name: BUYMA nightly stock reconcile
+
+# Runs the private stshophu/connector code (reconcile_stock.js).
+# The stock snapshot stays on the private repo's reconcile-state branch, the
+# full log + gone_from_shopify.txt go to its logs/buyma-reconcile branch.
+on:
+  schedule:
+    - cron: '17 2 * * *'     # 02:17 UTC = 03:17 Berlin (winter)
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'publish (send to BUYMA) or dry-run'
+        required: true
+        default: 'publish'
+        type: choice
+        options: [publish, dry-run]
+      max:
+        description: 'Max products to send this run'
+        required: false
+        default: '1500'
+
+concurrency:
+  group: buyma-reconcile
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  reconcile:
+    # Switched on by the repo variable RUNNER_ENABLED=true (after the secrets are in).
+    if: vars.RUNNER_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    env:
+      PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+      LOG_JOB: buyma-reconcile
+      S: ${{ github.workspace }}/runner/.github/scripts
+      MODE: ${{ inputs.mode || 'publish' }}
+      MAX: ${{ inputs.max || '1500' }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { path: runner }
+      - uses: actions/checkout@v4
+        with:
+          repository: stshophu/connector
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          path: src
+      - name: Load last snapshot
+        working-directory: src
+        run: |
+          mkdir -p state
+          if git fetch -q --depth 1 origin reconcile-state 2>/dev/null; then
+            git show origin/reconcile-state:stock.json > state/stock.json 2>/dev/null || rm -f state/stock.json
+          fi
+          [ -f state/stock.json ] && echo "snapshot loaded" || echo "no snapshot"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm install --silent --no-audit --no-fund
+        working-directory: src
+      - name: Reconcile
+        working-directory: src
+        env:
+          SHOPIFY_STORE_DOMAIN: ${{ secrets.SHOPIFY_STORE_DOMAIN }}
+          SHOPIFY_ADMIN_TOKEN: ${{ secrets.SHOPIFY_ADMIN_TOKEN }}
+          BUYMA_ENV: production
+          BUYMA_ACCESS_TOKEN: ${{ secrets.BUYMA_ACCESS_TOKEN }}
+        run: |
+          PUB=""; [ "$MODE" = "publish" ] && PUB="--publish"
+          bash "$S/quiet-run.sh" node reconcile_stock.js --state state/stock.json --max "$MAX" --delay-ms 10000 $PUB
+      - name: Save log privately
+        if: always()
+        working-directory: src
+        run: bash "$S/save-logs.sh" stshophu/connector buyma-reconcile gone_from_shopify.txt
+      - name: Save snapshot
+        if: success() && env.MODE == 'publish'
+        working-directory: src
+        run: |
+          cp state/stock.json "$RUNNER_TEMP/stock.json"
+          git config user.name  "buyma-reconcile"
+          git config user.email "actions@users.noreply.github.com"
+          git checkout -q --orphan reconcile-state-tmp
+          git rm -rq --cached . && git clean -fdq -e node_modules
+          cp "$RUNNER_TEMP/stock.json" stock.json
+          git add stock.json
+          git commit -qm "Stock snapshot $(date -u +%F)"
+          git push -fq origin HEAD:reconcile-state && echo "snapshot saved"

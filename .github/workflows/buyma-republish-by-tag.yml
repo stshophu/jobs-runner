@@ -1,0 +1,106 @@
+name: BUYMA republish by tag
+
+# Runs the private stshophu/connector code (republish_by_tag.js).
+# Manual: dry run by default. Or edit .github/republish-run in THIS repo:
+# every non-empty line is one batch (a tag, or "query:<Shopify search>"),
+# published one after another.
+on:
+  push:
+    branches: [main]
+    paths: ['.github/republish-run']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Shopify tag to republish'
+        required: true
+        default: 'RewixSync'
+      mode:
+        description: 'dry-run (send nothing) or publish'
+        required: true
+        default: 'dry-run'
+        type: choice
+        options: [dry-run, publish]
+      limit:
+        description: 'Only the first N products (0 = all)'
+        required: false
+        default: '0'
+      types:
+        description: 'Only these Shopify product types, comma-separated (empty = all)'
+        required: false
+        default: ''
+      ids_file:
+        description: 'Only product IDs listed in this connector-repo file, e.g. retry_ids.txt (empty = all)'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    # Switched on by the repo variable RUNNER_ENABLED=true (after the secrets are in).
+    if: vars.RUNNER_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    outputs:
+      batches: ${{ steps.p.outputs.batches }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: p
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "batches=$(grep -v '^\s*$' .github/republish-run | jq -R . | jq -sc .)" >> "$GITHUB_OUTPUT"
+          else
+            echo "batches=$(jq -cn --arg t "$TAG" '[$t]')" >> "$GITHUB_OUTPUT"
+          fi
+
+  republish:
+    needs: plan
+    strategy:
+      max-parallel: 1
+      fail-fast: false
+      matrix:
+        batch: ${{ fromJSON(needs.plan.outputs.batches) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    env:
+      PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+      LOG_JOB: buyma-republish-${{ strategy.job-index }}
+      S: ${{ github.workspace }}/runner/.github/scripts
+    steps:
+      - uses: actions/checkout@v4
+        with: { path: runner }
+      - uses: actions/checkout@v4
+        with:
+          repository: stshophu/connector
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          path: src
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm install --silent --no-audit --no-fund
+        working-directory: src
+      - name: Republish
+        working-directory: src
+        env:
+          SHOPIFY_STORE_DOMAIN: ${{ secrets.SHOPIFY_STORE_DOMAIN }}
+          SHOPIFY_ADMIN_TOKEN: ${{ secrets.SHOPIFY_ADMIN_TOKEN }}
+          BUYMA_ENV: production
+          BUYMA_ACCESS_TOKEN: ${{ secrets.BUYMA_ACCESS_TOKEN }}
+          BATCH: ${{ matrix.batch }}
+          LIMIT: ${{ inputs.limit }}
+          TYPES: ${{ inputs.types }}
+          IDS_FILE: ${{ inputs.ids_file }}
+          PUB: ${{ inputs.mode == 'publish' && '--publish' || '' }}
+        run: |
+          if [ "${{ github.event_name }}" = "push" ]; then
+            bash "$S/quiet-run.sh" node republish_by_tag.js --tag "$BATCH" --out republish.csv --publish --delay-ms 15000
+          else
+            bash "$S/quiet-run.sh" node republish_by_tag.js --tag "$BATCH" --limit "$LIMIT" \
+              --types "$TYPES" --ids-file "$IDS_FILE" --out republish.csv $PUB
+          fi
+      - name: Save log privately
+        if: always()
+        working-directory: src
+        run: bash "$S/save-logs.sh" stshophu/connector "$LOG_JOB" republish.csv

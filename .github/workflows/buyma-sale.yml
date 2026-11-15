@@ -1,0 +1,63 @@
+name: BUYMA sale tags
+
+# Runs the private stshophu/connector code (buyma_sale.js).
+# BUYMA-only 10% sale window 9–23 Nov; the script's "auto" mode does nothing
+# outside that window. Scheduled runs only remove/add tags by date.
+on:
+  schedule:
+    - cron: '40 13 9 11 *'   # 9 Nov, 14:40 Berlin — add tags
+    - cron: '30 14 9 11 *'   # 9 Nov, 15:30 Berlin — retry (no-op if already tagged)
+    - cron: '5 23 23 11 *'   # 24 Nov, 00:05 Berlin — remove tags
+    - cron: '0 6 24 11 *'    # 24 Nov, 07:00 Berlin — retry (no-op if already removed)
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'add, remove or auto (by date)'
+        required: true
+        default: 'auto'
+        type: choice
+        options: [auto, add, remove]
+      apply:
+        description: 'Write the tags (otherwise dry run)'
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  sale:
+    # Switched on by the repo variable RUNNER_ENABLED=true (after the secrets are in).
+    if: vars.RUNNER_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+      LOG_JOB: buyma-sale
+      S: ${{ github.workspace }}/runner/.github/scripts
+      MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || 'auto' }}
+      APPLY: ${{ (github.event_name != 'workflow_dispatch' || inputs.apply) && '--apply' || '' }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { path: runner }
+      - uses: actions/checkout@v4
+        with:
+          repository: stshophu/connector
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          path: src
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm install --silent --no-audit --no-fund
+        working-directory: src
+      - name: Update sale tags
+        working-directory: src
+        env:
+          SHOPIFY_STORE_DOMAIN: ${{ secrets.SHOPIFY_STORE_DOMAIN }}
+          SHOPIFY_ADMIN_TOKEN: ${{ secrets.SHOPIFY_ADMIN_TOKEN }}
+        run: bash "$S/quiet-run.sh" node buyma_sale.js --mode "$MODE" --out buyma_sale.csv $APPLY
+      - name: Save log privately
+        if: always()
+        working-directory: src
+        run: bash "$S/save-logs.sh" stshophu/connector buyma-sale buyma_sale.csv

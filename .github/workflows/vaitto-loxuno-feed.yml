@@ -1,0 +1,59 @@
+name: VAITTO Loxuno feed
+
+# Runs the private stshophu/vaitto-loxuno-feed code and commits the feed CSV
+# back to that private repo (data/vaitto_feed.csv), exactly as before.
+on:
+  schedule:
+    - cron: "0 * * * *"   # hourly
+  workflow_dispatch: {}
+
+concurrency:
+  group: vaitto-loxuno-feed
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    # Switched on by the repo variable RUNNER_ENABLED=true (after the secrets are in).
+    if: vars.RUNNER_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+      LOG_JOB: vaitto-loxuno-feed
+      S: ${{ github.workspace }}/runner/.github/scripts
+    steps:
+      - uses: actions/checkout@v4
+        with: { path: runner }
+      - uses: actions/checkout@v4
+        with:
+          repository: stshophu/vaitto-loxuno-feed
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          path: src
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -q -r requirements.txt
+        working-directory: src
+      - name: Build feed CSV
+        working-directory: src
+        env:
+          LOXUNO_KAKCA_FEED: ${{ secrets.LOXUNO_KAKCA_FEED }}
+          LOXUNO_PARALLEL_FEED: ${{ secrets.LOXUNO_PARALLEL_FEED }}
+          LOXUNO_EGAZI_FEED: ${{ secrets.LOXUNO_EGAZI_FEED }}
+        run: bash "$S/quiet-run.sh" python3 loxuno_to_vaitto_feed.py --out data/vaitto_feed.csv
+      - name: Commit updated feed to the private repo
+        working-directory: src
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/vaitto_feed.csv
+          if git diff --quiet --cached; then echo "feed unchanged"; exit 0; fi
+          git commit -qm "Update VAITTO feed $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          git push -q && echo "feed committed"
+      - name: Save log privately
+        if: always()
+        working-directory: src
+        run: bash "$S/save-logs.sh" stshophu/vaitto-loxuno-feed vaitto-loxuno-feed

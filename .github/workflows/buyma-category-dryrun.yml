@@ -1,0 +1,48 @@
+name: BUYMA category dry-run
+
+# Manual only. READ ONLY. Runs the private stshophu/connector code; the CSV
+# goes to the private repo, branch logs/buyma-category-dryrun.
+on:
+  workflow_dispatch:
+    inputs:
+      status:
+        description: 'Shopify product status to check (active, draft, or "any")'
+        required: false
+        default: 'active'
+
+permissions:
+  contents: read
+
+jobs:
+  dryrun:
+    # Switched on by the repo variable RUNNER_ENABLED=true (after the secrets are in).
+    if: vars.RUNNER_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    env:
+      PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+      LOG_JOB: buyma-category-dryrun
+      S: ${{ github.workspace }}/runner/.github/scripts
+    steps:
+      - uses: actions/checkout@v4
+        with: { path: runner }
+      - uses: actions/checkout@v4
+        with:
+          repository: stshophu/connector
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          path: src
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm install --silent --no-audit --no-fund
+        working-directory: src
+      - name: Run category dry-run
+        working-directory: src
+        env:
+          SHOPIFY_STORE_DOMAIN: ${{ secrets.SHOPIFY_STORE_DOMAIN }}
+          SHOPIFY_ADMIN_TOKEN: ${{ secrets.SHOPIFY_ADMIN_TOKEN }}
+          STATUS: ${{ inputs.status }}
+        run: bash "$S/quiet-run.sh" node dryrun_categories.js --status "$STATUS" --out category_dryrun.csv
+      - name: Save log privately
+        if: always()
+        working-directory: src
+        run: bash "$S/save-logs.sh" stshophu/connector buyma-category-dryrun category_dryrun.csv

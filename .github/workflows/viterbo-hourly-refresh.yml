@@ -1,0 +1,61 @@
+name: Viterbo — Hourly Stock & Price Refresh
+
+# Runs the private stshophu/viterbo-sync code; full output is saved to the
+# private repo, branch logs/viterbo-hourly-refresh.
+on:
+  schedule:
+    - cron: "45 * * * *"       # every hour at :45
+  workflow_dispatch:
+    inputs:
+      commit:
+        description: "Apply to Shopify (otherwise dry run)"
+        type: boolean
+        default: false
+      force:
+        description: "Override the 'too many zeroed at once' safety stop"
+        type: boolean
+        default: false
+
+concurrency:
+  group: viterbo-shopify       # never overlaps with the daily import
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  refresh:
+    # Switched on by the repo variable RUNNER_ENABLED=true (after the secrets are in).
+    if: vars.RUNNER_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+      LOG_JOB: viterbo-hourly-refresh
+      S: ${{ github.workspace }}/runner/.github/scripts
+    steps:
+      - uses: actions/checkout@v4
+        with: { path: runner }
+      - uses: actions/checkout@v4
+        with:
+          repository: stshophu/viterbo-sync
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          path: src
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -q -r requirements.txt
+        working-directory: src
+      - name: Run hourly refresh
+        working-directory: src
+        env:
+          SHOPIFY_DOMAIN: ${{ secrets.VITERBO_SHOPIFY_DOMAIN }}
+          SHOPIFY_TOKEN: ${{ secrets.VITERBO_SHOPIFY_TOKEN }}
+          VITERBO_FEED_URL: ${{ secrets.VITERBO_FEED_URL }}
+          COMMIT: ${{ (github.event_name == 'schedule' || inputs.commit) && '--commit' || '' }}
+          FORCE: ${{ inputs.force && '--force' || '' }}
+        run: bash "$S/quiet-run.sh" python3 viterbo_hourly_refresh.py $COMMIT $FORCE
+      - name: Save log privately
+        if: always()
+        working-directory: src
+        run: bash "$S/save-logs.sh" stshophu/viterbo-sync viterbo-hourly-refresh

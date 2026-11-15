@@ -1,0 +1,54 @@
+name: Stork sync
+
+# Runs the private stshophu/stork-sync code. Output (incl. stork_report.csv
+# with wholesale prices) is saved to the private repo, branch logs/stork-sync.
+on:
+  schedule:
+    - cron: "20,50 * * * *"     # every 30 minutes, offset from the other syncs
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (compute only, write nothing)"
+        type: boolean
+        default: true
+
+concurrency:
+  group: stork-sync
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    # Switched on by the repo variable RUNNER_ENABLED=true (after the secrets are in).
+    if: vars.RUNNER_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+      LOG_JOB: stork-sync
+      S: ${{ github.workspace }}/runner/.github/scripts
+    steps:
+      - uses: actions/checkout@v4
+        with: { path: runner }
+      - uses: actions/checkout@v4
+        with:
+          repository: stshophu/stork-sync
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          path: src
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Run Stork sync
+        working-directory: src
+        env:
+          SHOPIFY_STORE: modalist-de.myshopify.com
+          SHOPIFY_CLIENT_ID: ${{ secrets.STORK_SYNC_CLIENT_ID }}
+          SHOPIFY_CLIENT_SECRET: ${{ secrets.STORK_SYNC_CLIENT_SECRET }}
+          DRY: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && '--dry-run' || '' }}
+        run: bash "$S/quiet-run.sh" python stork_sync.py $DRY
+      - name: Save log privately
+        if: always()
+        working-directory: src
+        run: bash "$S/save-logs.sh" stshophu/stork-sync stork-sync stork_report.csv
