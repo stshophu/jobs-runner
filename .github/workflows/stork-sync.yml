@@ -21,8 +21,9 @@ permissions:
 
 jobs:
   sync:
-    # Switched on by the repo variable RUNNER_ENABLED=true (after the secrets are in).
-    if: vars.RUNNER_ENABLED == 'true'
+    # Switched on by RUNNER_ENABLED=true (whole group) or STORK_ENABLED=true (this job only).
+    # Runs unless STORK_ENABLED is explicitly 'false' - POIZON/Stork stock must stay current.
+    if: vars.STORK_ENABLED != 'false'
     runs-on: ubuntu-latest
     timeout-minutes: 25
     env:
