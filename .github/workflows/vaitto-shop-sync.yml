@@ -1,0 +1,75 @@
+# Code and output stay private (see README). VAITTO → Siebentaschen shop sync.
+# Updates price, compare-at price, cost and stock of products tagged VaittoFeed
+# (Fashiondealer for now) from the VAITTO database. Never touches titles, tags,
+# images or status, so WSNL / BUYMA / Stork / POIZON syncs are unaffected.
+#
+# Switched on by the repo variable VAITTO_SHOP_SYNC_ENABLED=true (scheduled runs write).
+# Manual runs default to a dry run. Optional variable VAITTO_SYNC_MAX_CREATE
+# (default 0) = how many new Fashiondealer products may be created as drafts per run.
+name: 'VAITTO → shop sync'
+
+on:
+  schedule:
+    - cron: '35 * * * *'     # hourly, offset from the RX/PS/SSP/Stork jobs
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Dry run (compute and report, write nothing)'
+        type: boolean
+        default: true
+      max_create:
+        description: 'New draft products to create this run (0 = none)'
+        type: string
+        default: '0'
+
+concurrency:
+  group: vaitto-shop-sync
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  sync:
+    if: github.event_name == 'workflow_dispatch' || vars.VAITTO_SHOP_SYNC_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PRIVATE_REPO_TOKEN: ${{ secrets.PRIVATE_REPO_TOKEN }}
+      LOG_JOB: vaitto-shop-sync
+    defaults:
+      run:
+        shell: quiet-shell {0}
+        working-directory: src
+    steps:
+      - name: Runner scripts
+        uses: actions/checkout@v4
+        with:
+          path: runner
+      - name: Install quiet shell
+        shell: bash
+        working-directory: .
+        run: sudo install -m 755 runner/.github/scripts/quiet-shell.sh /usr/local/bin/quiet-shell
+      - name: Private code (stshophu/rewix-shopify-sync)
+        uses: actions/checkout@v4
+        with:
+          repository: stshophu/rewix-shopify-sync
+          token: ${{ secrets.PRIVATE_REPO_TOKEN }}
+          path: src
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - run: npm install --no-save pg
+      - name: Run sync
+        env:
+          VAITTO_DB_URL: ${{ secrets.RX_VAITTO_DB_URL }}
+          SHOPIFY_STORE: ${{ secrets.RX_SHOPIFY_STORE }}
+          SHOPIFY_TOKEN: ${{ secrets.RX_SHOPIFY_TOKEN }}
+          VAITTO_SYNC_DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run && 'true' || 'false' }}
+          VAITTO_SYNC_MAX_CREATE: ${{ github.event_name == 'workflow_dispatch' && inputs.max_create || vars.VAITTO_SYNC_MAX_CREATE || '0' }}
+        run: node vaitto_shop_sync.js
+      - name: Save log and report privately
+        if: always()
+        shell: bash
+        run: bash "$GITHUB_WORKSPACE/runner/.github/scripts/save-logs.sh" stshophu/rewix-shopify-sync "$LOG_JOB" vaitto_shop_sync_report.csv

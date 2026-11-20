@@ -15,6 +15,7 @@ minutes are free in public repos.
 | `rx-` | rewix-shopify-sync | `RX_ENABLED` |
 | `ssp-` | supplier-sync-portfolio | `SSP_ENABLED` |
 | `sf-` | siebentaschen-feed-src (feeds are published to the public repo siebentaschen-feed) | `SF_ENABLED` |
+| VAITTO → shop sync (`vaitto-shop-sync.yml`) | rewix-shopify-sync (`vaitto_shop_sync.js`, uses the `RX_` secrets) | `VAITTO_SHOP_SYNC_ENABLED` |
 
 Set a variable to `false` to pause that group. Secrets of group XX are named
 `XX_<original name>` (copied automatically by the migration).
