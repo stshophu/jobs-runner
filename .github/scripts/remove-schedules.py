@@ -20,7 +20,7 @@ for path in glob.glob(os.path.join(root, ".github/workflows/*.y*ml")):
             if m:
                 skip = m.group(1) == "schedule"
                 if skip:
-                    out.append("  # schedule moved to the public runner stshophu/viterbo-runner")
+                    out.append("  # schedule moved to the public runner stshophu/jobs-runner")
                     continue
             elif skip and (line.startswith("    ") or line.strip().startswith("#")):
                 continue

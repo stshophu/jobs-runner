@@ -1,4 +1,4 @@
-# viterbo-runner
+# jobs-runner
 
 Public "runner" repo for Siebentaschen's scheduled jobs. It contains **only
 workflow files**. Each workflow checks out a **private** repo with the

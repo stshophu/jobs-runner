@@ -44,11 +44,11 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add .github/workflows
-          git diff --cached --quiet || { git commit -qm "Move schedules to the public runner stshophu/viterbo-runner"; git push -q; }
+          git diff --cached --quiet || { git commit -qm "Move schedules to the public runner stshophu/jobs-runner"; git push -q; }
       - name: Switch on the feed jobs and run them once
         run: |
           set -euo pipefail
-          gh variable set SF_ENABLED --repo stshophu/viterbo-runner --body true
+          gh variable set SF_ENABLED --repo stshophu/jobs-runner --body true
           for wf in sf-google-feed.yml sf-glami-feed.yml sf-feed-export.yml; do
-            gh workflow run "$wf" --repo stshophu/viterbo-runner && echo "started $wf"
+            gh workflow run "$wf" --repo stshophu/jobs-runner && echo "started $wf"
           done
