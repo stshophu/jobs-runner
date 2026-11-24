@@ -3,14 +3,14 @@
 # (Fashiondealer for now) from the VAITTO database. Never touches titles, tags,
 # images or status, so WSNL / BUYMA / Stork / POIZON syncs are unaffected.
 #
-# Switched on by the repo variable VAITTO_SHOP_SYNC_ENABLED=true (scheduled runs write).
+# Started hourly by cron-job.org (workflow_dispatch); VAITTO_SHOP_SYNC_ENABLED no longer matters for scheduling.
 # Manual runs default to a dry run. Optional variable VAITTO_SYNC_MAX_CREATE
 # (default 0) = how many new Fashiondealer products may be created as drafts per run.
 name: 'VAITTO → shop sync'
 
 on:
-  schedule:
-    - cron: '35 * * * *'     # hourly, offset from the RX/PS/SSP/Stork jobs
+  # No schedule: GitHub's cron fired unreliably, so cron-job.org starts this
+  # workflow hourly at :35 via workflow_dispatch. A second trigger here ran it twice.
   workflow_dispatch:
     inputs:
       dry_run:
