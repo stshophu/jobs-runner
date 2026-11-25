@@ -46,8 +46,8 @@ jobs:
       - name: Run import
         working-directory: src
         env:
-          SHOPIFY_DOMAIN: ${{ secrets.VITERBO_SHOPIFY_DOMAIN }}
-          SHOPIFY_TOKEN: ${{ secrets.VITERBO_SHOPIFY_TOKEN }}
+          SHOPIFY_DOMAIN: ${{ secrets.VITERBO_SHOPIFY_DOMAIN || secrets.SHOPIFY_DOMAIN }}
+          SHOPIFY_TOKEN: ${{ secrets.VITERBO_SHOPIFY_TOKEN || secrets.SHOPIFY_TOKEN }}
           VITERBO_FEED_URL: ${{ secrets.VITERBO_FEED_URL }}
           VITERBO_IMPORT_ENABLED: ${{ vars.VITERBO_IMPORT_ENABLED }}
           VITERBO_DAILY_CAP: ${{ vars.VITERBO_DAILY_CAP }}

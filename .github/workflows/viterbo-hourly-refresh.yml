@@ -49,8 +49,8 @@ jobs:
       - name: Run hourly refresh
         working-directory: src
         env:
-          SHOPIFY_DOMAIN: ${{ secrets.VITERBO_SHOPIFY_DOMAIN }}
-          SHOPIFY_TOKEN: ${{ secrets.VITERBO_SHOPIFY_TOKEN }}
+          SHOPIFY_DOMAIN: ${{ secrets.VITERBO_SHOPIFY_DOMAIN || secrets.SHOPIFY_DOMAIN }}
+          SHOPIFY_TOKEN: ${{ secrets.VITERBO_SHOPIFY_TOKEN || secrets.SHOPIFY_TOKEN }}
           VITERBO_FEED_URL: ${{ secrets.VITERBO_FEED_URL }}
           COMMIT: ${{ (github.event_name == 'schedule' || inputs.commit) && '--commit' || '' }}
           FORCE: ${{ inputs.force && '--force' || '' }}
