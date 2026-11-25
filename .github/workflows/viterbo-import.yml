@@ -52,6 +52,8 @@ jobs:
           VITERBO_IMPORT_ENABLED: ${{ vars.VITERBO_IMPORT_ENABLED }}
           VITERBO_DAILY_CAP: ${{ vars.VITERBO_DAILY_CAP }}
           VITERBO_ONLY_SUBCATEGORIES: ${{ vars.VITERBO_ONLY_SUBCATEGORIES }}
+          VITERBO_ONLY_BRANDS: ${{ vars.VITERBO_ONLY_BRANDS }}
+          VITERBO_ONLY_SEASONS: ${{ vars.VITERBO_ONLY_SEASONS }}
           COMMIT: ${{ (github.event_name == 'schedule' || inputs.commit) && '--commit' || '' }}
         run: bash "$S/quiet-run.sh" python3 viterbo_import.py $COMMIT
       - name: Save log privately
